@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package storage // import "helm.sh/helm/v3/pkg/storage"
+package storage // import "helm.sh/helm/v4/pkg/storage"
 
 import (
 	"fmt"
@@ -22,9 +22,9 @@ import (
 
 	"github.com/pkg/errors"
 
-	rspb "helm.sh/helm/v3/pkg/release"
-	relutil "helm.sh/helm/v3/pkg/releaseutil"
-	"helm.sh/helm/v3/pkg/storage/driver"
+	rspb "helm.sh/helm/v4/pkg/release"
+	relutil "helm.sh/helm/v4/pkg/releaseutil"
+	"helm.sh/helm/v4/pkg/storage/driver"
 )
 
 // HelmStorageType is the type field of the Kubernetes storage object which stores the Helm release
@@ -111,7 +111,7 @@ func (s *Storage) ListDeployed() ([]*rspb.Release, error) {
 }
 
 // Deployed returns the last deployed release with the provided release name, or
-// returns ErrReleaseNotFound if not found.
+// returns driver.NewErrNoDeployedReleases if not found.
 func (s *Storage) Deployed(name string) (*rspb.Release, error) {
 	ls, err := s.DeployedAll(name)
 	if err != nil {
@@ -130,7 +130,7 @@ func (s *Storage) Deployed(name string) (*rspb.Release, error) {
 }
 
 // DeployedAll returns all deployed releases with the provided name, or
-// returns ErrReleaseNotFound if not found.
+// returns driver.NewErrNoDeployedReleases if not found.
 func (s *Storage) DeployedAll(name string) ([]*rspb.Release, error) {
 	s.Log("getting deployed releases from %q history", name)
 
@@ -149,7 +149,7 @@ func (s *Storage) DeployedAll(name string) ([]*rspb.Release, error) {
 }
 
 // History returns the revision history for the release with the provided name, or
-// returns ErrReleaseNotFound if no such release name exists.
+// returns driver.ErrReleaseNotFound if no such release name exists.
 func (s *Storage) History(name string) ([]*rspb.Release, error) {
 	s.Log("getting release history for %q", name)
 

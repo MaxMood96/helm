@@ -18,7 +18,6 @@ package chartutil
 
 import (
 	"io"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 
@@ -26,8 +25,8 @@ import (
 	"github.com/pkg/errors"
 	"sigs.k8s.io/yaml"
 
-	"helm.sh/helm/v3/pkg/chart"
-	"helm.sh/helm/v3/pkg/chart/loader"
+	"helm.sh/helm/v4/pkg/chart"
+	"helm.sh/helm/v4/pkg/chart/loader"
 )
 
 // Expand uncompresses and extracts a chart into the specified directory.
@@ -72,7 +71,7 @@ func Expand(dir string, r io.Reader) error {
 			return err
 		}
 
-		if err := ioutil.WriteFile(outpath, file.Data, 0644); err != nil {
+		if err := os.WriteFile(outpath, file.Data, 0644); err != nil {
 			return err
 		}
 	}

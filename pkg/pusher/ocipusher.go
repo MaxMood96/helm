@@ -17,7 +17,6 @@ package pusher
 
 import (
 	"fmt"
-	"io/ioutil"
 	"net"
 	"net/http"
 	"os"
@@ -27,9 +26,10 @@ import (
 
 	"github.com/pkg/errors"
 
-	"helm.sh/helm/v3/internal/tlsutil"
-	"helm.sh/helm/v3/pkg/chart/loader"
-	"helm.sh/helm/v3/pkg/registry"
+	"helm.sh/helm/v4/internal/tlsutil"
+	"helm.sh/helm/v4/pkg/chart/loader"
+	"helm.sh/helm/v4/pkg/registry"
+	"helm.sh/helm/v4/pkg/time/ctime"
 )
 
 // OCIPusher is the default OCI backend handler
@@ -71,7 +71,7 @@ func (pusher *OCIPusher) push(chartRef, href string) error {
 		client = c
 	}
 
-	chartBytes, err := ioutil.ReadFile(chartRef)
+	chartBytes, err := os.ReadFile(chartRef)
 	if err != nil {
 		return err
 	}
@@ -79,7 +79,7 @@ func (pusher *OCIPusher) push(chartRef, href string) error {
 	var pushOpts []registry.PushOption
 	provRef := fmt.Sprintf("%s.prov", chartRef)
 	if _, err := os.Stat(provRef); err == nil {
-		provBytes, err := ioutil.ReadFile(provRef)
+		provBytes, err := os.ReadFile(provRef)
 		if err != nil {
 			return err
 		}
@@ -89,6 +89,10 @@ func (pusher *OCIPusher) push(chartRef, href string) error {
 	ref := fmt.Sprintf("%s:%s",
 		path.Join(strings.TrimPrefix(href, fmt.Sprintf("%s://", registry.OCIScheme)), meta.Metadata.Name),
 		meta.Metadata.Version)
+
+	// The time the chart was "created" is semantically the time the chart archive file was last written(modified)
+	chartArchiveFileCreatedTime := ctime.Modified(stat)
+	pushOpts = append(pushOpts, registry.PushOptCreationTime(chartArchiveFileCreatedTime.Format(time.RFC3339)))
 
 	_, err = client.Push(chartBytes, ref, pushOpts...)
 	return err
@@ -140,9 +144,12 @@ func (pusher *OCIPusher) newRegistryClient() (*registry.Client, error) {
 		return registryClient, nil
 	}
 
-	registryClient, err := registry.NewClient(
-		registry.ClientOptEnableCache(true),
-	)
+	opts := []registry.ClientOption{registry.ClientOptEnableCache(true)}
+	if pusher.opts.plainHTTP {
+		opts = append(opts, registry.ClientOptPlainHTTP())
+	}
+
+	registryClient, err := registry.NewClient(opts...)
 	if err != nil {
 		return nil, err
 	}

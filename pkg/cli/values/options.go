@@ -17,7 +17,7 @@ limitations under the License.
 package values
 
 import (
-	"io/ioutil"
+	"io"
 	"net/url"
 	"os"
 	"strings"
@@ -25,17 +25,18 @@ import (
 	"github.com/pkg/errors"
 	"sigs.k8s.io/yaml"
 
-	"helm.sh/helm/v3/pkg/getter"
-	"helm.sh/helm/v3/pkg/strvals"
+	"helm.sh/helm/v4/pkg/getter"
+	"helm.sh/helm/v4/pkg/strvals"
 )
 
 // Options captures the different ways to specify values
 type Options struct {
-	ValueFiles   []string // -f/--values
-	StringValues []string // --set-string
-	Values       []string // --set
-	FileValues   []string // --set-file
-	JSONValues   []string // --set-json
+	ValueFiles    []string // -f/--values
+	StringValues  []string // --set-string
+	Values        []string // --set
+	FileValues    []string // --set-file
+	JSONValues    []string // --set-json
+	LiteralValues []string // --set-literal
 }
 
 // MergeValues merges values from files specified via -f/--values and directly
@@ -94,6 +95,13 @@ func (opts *Options) MergeValues(p getter.Providers) (map[string]interface{}, er
 		}
 	}
 
+	// User specified a value via --set-literal
+	for _, value := range opts.LiteralValues {
+		if err := strvals.ParseLiteralInto(value, base); err != nil {
+			return nil, errors.Wrap(err, "failed parsing --set-literal data")
+		}
+	}
+
 	return base, nil
 }
 
@@ -119,7 +127,7 @@ func mergeMaps(a, b map[string]interface{}) map[string]interface{} {
 // readFile load a file from stdin, the local directory, or a remote file with a url.
 func readFile(filePath string, p getter.Providers) ([]byte, error) {
 	if strings.TrimSpace(filePath) == "-" {
-		return ioutil.ReadAll(os.Stdin)
+		return io.ReadAll(os.Stdin)
 	}
 	u, err := url.Parse(filePath)
 	if err != nil {
@@ -129,7 +137,7 @@ func readFile(filePath string, p getter.Providers) ([]byte, error) {
 	// FIXME: maybe someone handle other protocols like ftp.
 	g, err := p.ByScheme(u.Scheme)
 	if err != nil {
-		return ioutil.ReadFile(filePath)
+		return os.ReadFile(filePath)
 	}
 	data, err := g.Get(filePath, getter.WithURL(filePath))
 	if err != nil {

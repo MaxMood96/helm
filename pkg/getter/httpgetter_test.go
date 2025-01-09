@@ -30,9 +30,9 @@ import (
 
 	"github.com/pkg/errors"
 
-	"helm.sh/helm/v3/internal/tlsutil"
-	"helm.sh/helm/v3/internal/version"
-	"helm.sh/helm/v3/pkg/cli"
+	"helm.sh/helm/v4/internal/tlsutil"
+	"helm.sh/helm/v4/internal/version"
+	"helm.sh/helm/v4/pkg/cli"
 )
 
 func TestHTTPGetter(t *testing.T) {
@@ -280,6 +280,29 @@ func TestDownload(t *testing.T) {
 	if got.String() != expect {
 		t.Errorf("Expected %q, got %q", expect, got.String())
 	}
+
+	// test server with varied Accept Header
+	const expectedAcceptHeader = "application/gzip,application/octet-stream"
+	acceptHeaderSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Accept") != expectedAcceptHeader {
+			t.Errorf("Expected '%s', got '%s'", expectedAcceptHeader, r.Header.Get("Accept"))
+		}
+		fmt.Fprint(w, expect)
+	}))
+
+	defer acceptHeaderSrv.Close()
+
+	u, _ = url.ParseRequestURI(acceptHeaderSrv.URL)
+	httpgetter, err = NewHTTPGetter(
+		WithAcceptHeader(expectedAcceptHeader),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = httpgetter.Get(u.String())
+	if err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestDownloadTLS(t *testing.T) {
@@ -287,7 +310,7 @@ func TestDownloadTLS(t *testing.T) {
 	ca, pub, priv := filepath.Join(cd, "rootca.crt"), filepath.Join(cd, "crt.pem"), filepath.Join(cd, "key.pem")
 	insecureSkipTLSverify := false
 
-	tlsSrv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	tlsSrv := httptest.NewUnstartedServer(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {}))
 	tlsConf, err := tlsutil.NewClientTLS(pub, priv, ca, insecureSkipTLSverify)
 	if err != nil {
 		t.Fatal(errors.Wrap(err, "can't create TLS config for client"))
@@ -332,7 +355,7 @@ func TestDownloadTLS(t *testing.T) {
 }
 
 func TestDownloadInsecureSkipTLSVerify(t *testing.T) {
-	ts := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	ts := httptest.NewTLSServer(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {}))
 	defer ts.Close()
 
 	u, _ := url.ParseRequestURI(ts.URL)
@@ -364,7 +387,7 @@ func TestDownloadInsecureSkipTLSVerify(t *testing.T) {
 }
 
 func TestHTTPGetterTarDownload(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		f, _ := os.Open("testdata/empty-0.0.1.tgz")
 		defer f.Close()
 
@@ -435,10 +458,10 @@ func verifyInsecureSkipVerify(t *testing.T, g *HTTPGetter, caseName string, expe
 		t.Fatal(err)
 	}
 
-	if returnVal == nil {
+	if returnVal == nil { //nolint:staticcheck
 		t.Fatalf("Expected non nil value for http client")
 	}
-	transport := (returnVal.Transport).(*http.Transport)
+	transport := (returnVal.Transport).(*http.Transport) //nolint:staticcheck
 	gotValue := false
 	if transport.TLSClientConfig != nil {
 		gotValue = transport.TLSClientConfig.InsecureSkipVerify
@@ -459,11 +482,11 @@ func TestDefaultHTTPTransportReuse(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if httpClient1 == nil {
+	if httpClient1 == nil { //nolint:staticcheck
 		t.Fatalf("Expected non nil value for http client")
 	}
 
-	transport1 := (httpClient1.Transport).(*http.Transport)
+	transport1 := (httpClient1.Transport).(*http.Transport) //nolint:staticcheck
 
 	httpClient2, err := g.httpClient()
 
@@ -471,11 +494,11 @@ func TestDefaultHTTPTransportReuse(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if httpClient2 == nil {
+	if httpClient2 == nil { //nolint:staticcheck
 		t.Fatalf("Expected non nil value for http client")
 	}
 
-	transport2 := (httpClient2.Transport).(*http.Transport)
+	transport2 := (httpClient2.Transport).(*http.Transport) //nolint:staticcheck
 
 	if transport1 != transport2 {
 		t.Fatalf("Expected default transport to be reused")
@@ -493,11 +516,11 @@ func TestHTTPTransportOption(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if httpClient1 == nil {
+	if httpClient1 == nil { //nolint:staticcheck
 		t.Fatalf("Expected non nil value for http client")
 	}
 
-	transport1 := (httpClient1.Transport).(*http.Transport)
+	transport1 := (httpClient1.Transport).(*http.Transport) //nolint:staticcheck
 
 	if transport1 != transport {
 		t.Fatalf("Expected transport option to be applied")
@@ -509,11 +532,11 @@ func TestHTTPTransportOption(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if httpClient2 == nil {
+	if httpClient2 == nil { //nolint:staticcheck
 		t.Fatalf("Expected non nil value for http client")
 	}
 
-	transport2 := (httpClient2.Transport).(*http.Transport)
+	transport2 := (httpClient2.Transport).(*http.Transport) //nolint:staticcheck
 
 	if transport1 != transport2 {
 		t.Fatalf("Expected applied transport to be reused")

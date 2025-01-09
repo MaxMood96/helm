@@ -14,14 +14,14 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package repo // import "helm.sh/helm/v3/pkg/repo"
+package repo // import "helm.sh/helm/v4/pkg/repo"
 
 import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"log"
 	"net/url"
 	"os"
@@ -31,10 +31,10 @@ import (
 	"github.com/pkg/errors"
 	"sigs.k8s.io/yaml"
 
-	"helm.sh/helm/v3/pkg/chart/loader"
-	"helm.sh/helm/v3/pkg/getter"
-	"helm.sh/helm/v3/pkg/helmpath"
-	"helm.sh/helm/v3/pkg/provenance"
+	"helm.sh/helm/v4/pkg/chart/loader"
+	"helm.sh/helm/v4/pkg/getter"
+	"helm.sh/helm/v4/pkg/helmpath"
+	"helm.sh/helm/v4/pkg/provenance"
 )
 
 // Entry represents a collection of parameters for chart repository
@@ -96,7 +96,7 @@ func (r *ChartRepository) Load() error {
 	// FIXME: Why are we recursively walking directories?
 	// FIXME: Why are we not reading the repositories.yaml to figure out
 	// what repos to use?
-	filepath.Walk(r.Config.Name, func(path string, f os.FileInfo, err error) error {
+	filepath.Walk(r.Config.Name, func(path string, f os.FileInfo, _ error) error {
 		if !f.IsDir() {
 			if strings.Contains(f.Name(), "-index.yaml") {
 				i, err := LoadIndexFile(path)
@@ -131,7 +131,7 @@ func (r *ChartRepository) DownloadIndexFile() (string, error) {
 		return "", err
 	}
 
-	index, err := ioutil.ReadAll(resp)
+	index, err := io.ReadAll(resp)
 	if err != nil {
 		return "", err
 	}
@@ -148,12 +148,12 @@ func (r *ChartRepository) DownloadIndexFile() (string, error) {
 	}
 	chartsFile := filepath.Join(r.CachePath, helmpath.CacheChartsFile(r.Config.Name))
 	os.MkdirAll(filepath.Dir(chartsFile), 0755)
-	ioutil.WriteFile(chartsFile, []byte(charts.String()), 0644)
+	os.WriteFile(chartsFile, []byte(charts.String()), 0644)
 
 	// Create the index file in the cache directory
 	fname := filepath.Join(r.CachePath, helmpath.CacheIndexFile(r.Config.Name))
 	os.MkdirAll(filepath.Dir(fname), 0755)
-	return fname, ioutil.WriteFile(fname, index, 0644)
+	return fname, os.WriteFile(fname, index, 0644)
 }
 
 // Index generates an index for the chart repository and writes an index.yaml file.
@@ -170,7 +170,7 @@ func (r *ChartRepository) saveIndexFile() error {
 	if err != nil {
 		return err
 	}
-	return ioutil.WriteFile(filepath.Join(r.Config.Name, indexPath), index, 0644)
+	return os.WriteFile(filepath.Join(r.Config.Name, indexPath), index, 0644)
 }
 
 func (r *ChartRepository) generateIndex() error {

@@ -24,10 +24,9 @@ import (
 	"strings"
 	"testing"
 
-	"helm.sh/helm/v3/internal/test/ensure"
-	"helm.sh/helm/v3/pkg/helmpath"
-	"helm.sh/helm/v3/pkg/repo"
-	"helm.sh/helm/v3/pkg/repo/repotest"
+	"helm.sh/helm/v4/pkg/helmpath"
+	"helm.sh/helm/v4/pkg/repo"
+	"helm.sh/helm/v4/pkg/repo/repotest"
 )
 
 func TestRepoRemove(t *testing.T) {
@@ -37,7 +36,7 @@ func TestRepoRemove(t *testing.T) {
 	}
 	defer ts.Stop()
 
-	rootDir := ensure.TempDir(t)
+	rootDir := t.TempDir()
 	repoFile := filepath.Join(rootDir, "repositories.yaml")
 
 	const testRepoName = "test-name"
@@ -169,7 +168,7 @@ func TestRepoRemoveCompletion(t *testing.T) {
 	}
 	defer ts.Stop()
 
-	rootDir := ensure.TempDir(t)
+	rootDir := t.TempDir()
 	repoFile := filepath.Join(rootDir, "repositories.yaml")
 	repoCache := filepath.Join(rootDir, "cache/")
 

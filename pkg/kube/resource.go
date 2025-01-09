@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package kube // import "helm.sh/helm/v3/pkg/kube"
+package kube // import "helm.sh/helm/v4/pkg/kube"
 
 import "k8s.io/cli-runtime/pkg/resource"
 
@@ -26,7 +26,7 @@ func (r *ResourceList) Append(val *resource.Info) {
 	*r = append(*r, val)
 }
 
-// Visit implements resource.Visitor.
+// Visit implements resource.Visitor. The visitor stops if fn returns an error.
 func (r ResourceList) Visit(fn resource.VisitorFunc) error {
 	for _, i := range r {
 		if err := fn(i, nil); err != nil {
