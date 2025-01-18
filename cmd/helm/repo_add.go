@@ -20,7 +20,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"strings"
@@ -32,9 +31,9 @@ import (
 	"golang.org/x/term"
 	"sigs.k8s.io/yaml"
 
-	"helm.sh/helm/v3/cmd/helm/require"
-	"helm.sh/helm/v3/pkg/getter"
-	"helm.sh/helm/v3/pkg/repo"
+	"helm.sh/helm/v4/cmd/helm/require"
+	"helm.sh/helm/v4/pkg/getter"
+	"helm.sh/helm/v4/pkg/repo"
 )
 
 // Repositories that have been permanently deleted and no longer work
@@ -60,20 +59,22 @@ type repoAddOptions struct {
 
 	repoFile  string
 	repoCache string
-
-	// Deprecated, but cannot be removed until Helm 4
-	deprecatedNoUpdate bool
 }
 
 func newRepoAddCmd(out io.Writer) *cobra.Command {
 	o := &repoAddOptions{}
 
 	cmd := &cobra.Command{
-		Use:               "add [NAME] [URL]",
-		Short:             "add a chart repository",
-		Args:              require.ExactArgs(2),
-		ValidArgsFunction: noCompletions,
-		RunE: func(cmd *cobra.Command, args []string) error {
+		Use:   "add [NAME] [URL]",
+		Short: "add a chart repository",
+		Args:  require.ExactArgs(2),
+		ValidArgsFunction: func(_ *cobra.Command, args []string, _ string) ([]string, cobra.ShellCompDirective) {
+			if len(args) > 1 {
+				return noMoreArgsComp()
+			}
+			return nil, cobra.ShellCompDirectiveNoFileComp
+		},
+		RunE: func(_ *cobra.Command, args []string) error {
 			o.name = args[0]
 			o.url = args[1]
 			o.repoFile = settings.RepositoryConfig
@@ -88,7 +89,6 @@ func newRepoAddCmd(out io.Writer) *cobra.Command {
 	f.StringVar(&o.password, "password", "", "chart repository password")
 	f.BoolVarP(&o.passwordFromStdinOpt, "password-stdin", "", false, "read chart repository password from stdin")
 	f.BoolVar(&o.forceUpdate, "force-update", false, "replace (overwrite) the repo if it already exists")
-	f.BoolVar(&o.deprecatedNoUpdate, "no-update", false, "Ignored. Formerly, it would disabled forced updates. It is deprecated by force-update.")
 	f.StringVar(&o.certFile, "cert-file", "", "identify HTTPS client using this SSL certificate file")
 	f.StringVar(&o.keyFile, "key-file", "", "identify HTTPS client using this SSL key file")
 	f.StringVar(&o.caFile, "ca-file", "", "verify certificates of HTTPS-enabled servers using this CA bundle")
@@ -134,7 +134,7 @@ func (o *repoAddOptions) run(out io.Writer) error {
 		return err
 	}
 
-	b, err := ioutil.ReadFile(o.repoFile)
+	b, err := os.ReadFile(o.repoFile)
 	if err != nil && !os.IsNotExist(err) {
 		return err
 	}
@@ -213,7 +213,7 @@ func (o *repoAddOptions) run(out io.Writer) error {
 
 	f.Update(&c)
 
-	if err := f.WriteFile(o.repoFile, 0644); err != nil {
+	if err := f.WriteFile(o.repoFile, 0600); err != nil {
 		return err
 	}
 	fmt.Fprintf(out, "%q has been added to your repositories\n", o.name)

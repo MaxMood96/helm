@@ -26,8 +26,8 @@ import (
 	"github.com/pkg/errors"
 	"sigs.k8s.io/yaml"
 
-	"helm.sh/helm/v3/pkg/chartutil"
-	"helm.sh/helm/v3/pkg/release"
+	"helm.sh/helm/v4/pkg/chartutil"
+	"helm.sh/helm/v4/pkg/release"
 )
 
 // Manifest represents a manifest file, which has a name and some content.
@@ -41,7 +41,6 @@ type Manifest struct {
 type manifestFile struct {
 	entries map[string]string
 	path    string
-	apis    chartutil.VersionSet
 }
 
 // result is an intermediate structure used during sorting.
@@ -75,7 +74,7 @@ var events = map[string]release.HookEvent{
 //
 // Files that do not parse into the expected format are simply placed into a map and
 // returned.
-func SortManifests(files map[string]string, apis chartutil.VersionSet, ordering KindSortOrder) ([]*release.Hook, []Manifest, error) {
+func SortManifests(files map[string]string, _ chartutil.VersionSet, ordering KindSortOrder) ([]*release.Hook, []Manifest, error) {
 	result := &result{}
 
 	var sortedFilePaths []string
@@ -100,7 +99,6 @@ func SortManifests(files map[string]string, apis chartutil.VersionSet, ordering 
 		manifestFile := &manifestFile{
 			entries: SplitManifests(content),
 			path:    filePath,
-			apis:    apis,
 		}
 
 		if err := manifestFile.sort(result); err != nil {
@@ -117,19 +115,19 @@ func SortManifests(files map[string]string, apis chartutil.VersionSet, ordering 
 //
 // To determine hook type, it looks for a YAML structure like this:
 //
-//  kind: SomeKind
-//  apiVersion: v1
-// 	metadata:
-//		annotations:
-//			helm.sh/hook: pre-install
+//	 kind: SomeKind
+//	 apiVersion: v1
+//		metadata:
+//			annotations:
+//				helm.sh/hook: pre-install
 //
 // To determine the policy to delete the hook, it looks for a YAML structure like this:
 //
-//  kind: SomeKind
-//  apiVersion: v1
-//  metadata:
-// 		annotations:
-// 			helm.sh/hook-delete-policy: hook-succeeded
+//	 kind: SomeKind
+//	 apiVersion: v1
+//	 metadata:
+//			annotations:
+//				helm.sh/hook-delete-policy: hook-succeeded
 func (file *manifestFile) sort(result *result) error {
 	// Go through manifests in order found in file (function `SplitManifests` creates integer-sortable keys)
 	var sortedEntryKeys []string

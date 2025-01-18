@@ -25,9 +25,9 @@ import (
 
 	"github.com/pkg/errors"
 
-	"helm.sh/helm/v3/internal/tlsutil"
-	"helm.sh/helm/v3/internal/urlutil"
-	"helm.sh/helm/v3/internal/version"
+	"helm.sh/helm/v4/internal/tlsutil"
+	"helm.sh/helm/v4/internal/urlutil"
+	"helm.sh/helm/v4/internal/version"
 )
 
 // HTTPGetter is the default HTTP(/S) backend handler
@@ -51,6 +51,10 @@ func (g *HTTPGetter) get(href string) (*bytes.Buffer, error) {
 	req, err := http.NewRequest(http.MethodGet, href, nil)
 	if err != nil {
 		return nil, err
+	}
+
+	if g.opts.acceptHeader != "" {
+		req.Header.Set("Accept", g.opts.acceptHeader)
 	}
 
 	req.Header.Set("User-Agent", version.GetUserAgent())

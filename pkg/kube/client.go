@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package kube // import "helm.sh/helm/v3/pkg/kube"
+package kube // import "helm.sh/helm/v4/pkg/kube"
 
 import (
 	"bytes"
@@ -37,6 +37,7 @@ import (
 	apiextv1beta1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1beta1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 
+	multierror "github.com/hashicorp/go-multierror"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -54,6 +55,7 @@ import (
 	"k8s.io/client-go/rest"
 	cachetools "k8s.io/client-go/tools/cache"
 	watchtools "k8s.io/client-go/tools/watch"
+	"k8s.io/client-go/util/retry"
 	cmdutil "k8s.io/kubectl/pkg/cmd/util"
 )
 
@@ -68,6 +70,14 @@ var ManagedFieldsManager string
 
 // Client represents a client capable of communicating with the Kubernetes API.
 type Client struct {
+	// Factory provides a minimal version of the kubectl Factory interface. If
+	// you need the full Factory you can type switch to the full interface.
+	// Since Kubernetes Go API does not provide backwards compatibility across
+	// minor versions, this API does not follow Helm backwards compatibility.
+	// Helm is exposing Kubernetes in this property and cannot guarantee this
+	// will not change. The minimal interface only has the functions that Helm
+	// needs. The smaller surface area of the interface means there is a lower
+	// chance of it changing.
 	Factory Factory
 	Log     func(string, ...interface{})
 	// Namespace allows to bypass the kubeconfig file for the choice of the namespace
@@ -76,23 +86,22 @@ type Client struct {
 	kubeClient *kubernetes.Clientset
 }
 
-var addToScheme sync.Once
+func init() {
+	// Add CRDs to the scheme. They are missing by default.
+	if err := apiextv1.AddToScheme(scheme.Scheme); err != nil {
+		// This should never happen.
+		panic(err)
+	}
+	if err := apiextv1beta1.AddToScheme(scheme.Scheme); err != nil {
+		panic(err)
+	}
+}
 
 // New creates a new Client.
 func New(getter genericclioptions.RESTClientGetter) *Client {
 	if getter == nil {
 		getter = genericclioptions.NewConfigFlags(true)
 	}
-	// Add CRDs to the scheme. They are missing by default.
-	addToScheme.Do(func() {
-		if err := apiextv1.AddToScheme(scheme.Scheme); err != nil {
-			// This should never happen.
-			panic(err)
-		}
-		if err := apiextv1beta1.AddToScheme(scheme.Scheme); err != nil {
-			panic(err)
-		}
-	})
 	return &Client{
 		Factory: cmdutil.NewFactory(getter),
 		Log:     nopLogger,
@@ -115,7 +124,7 @@ func (c *Client) getKubeClient() (*kubernetes.Clientset, error) {
 func (c *Client) IsReachable() error {
 	client, err := c.getKubeClient()
 	if err == genericclioptions.ErrEmptyConfig {
-		// re-replace kubernetes ErrEmptyConfig error with a friendy error
+		// re-replace kubernetes ErrEmptyConfig error with a friendly error
 		// moar workarounds for Kubernetes API breaking.
 		return errors.New("Kubernetes cluster unreachable")
 	}
@@ -337,13 +346,7 @@ func (c *Client) Build(reader io.Reader, validate bool) (ResourceList, error) {
 		validationDirective = metav1.FieldValidationStrict
 	}
 
-	dynamicClient, err := c.Factory.DynamicClient()
-	if err != nil {
-		return nil, err
-	}
-
-	verifier := resource.NewQueryParamVerifier(dynamicClient, c.Factory.OpenAPIGetter(), resource.QueryParamFieldValidation)
-	schema, err := c.Factory.Validator(validationDirective, verifier)
+	schema, err := c.Factory.Validator(validationDirective)
 	if err != nil {
 		return nil, err
 	}
@@ -363,13 +366,7 @@ func (c *Client) BuildTable(reader io.Reader, validate bool) (ResourceList, erro
 		validationDirective = metav1.FieldValidationStrict
 	}
 
-	dynamicClient, err := c.Factory.DynamicClient()
-	if err != nil {
-		return nil, err
-	}
-
-	verifier := resource.NewQueryParamVerifier(dynamicClient, c.Factory.OpenAPIGetter(), resource.QueryParamFieldValidation)
-	schema, err := c.Factory.Validator(validationDirective, verifier)
+	schema, err := c.Factory.Validator(validationDirective)
 	if err != nil {
 		return nil, err
 	}
@@ -438,7 +435,7 @@ func (c *Client) Update(original, target ResourceList, force bool) (*Result, err
 	case err != nil:
 		return res, err
 	case len(updateErrors) != 0:
-		return res, errors.Errorf(strings.Join(updateErrors, " && "))
+		return res, errors.New(strings.Join(updateErrors, " && "))
 	}
 
 	for _, info := range original.Difference(target) {
@@ -456,7 +453,7 @@ func (c *Client) Update(original, target ResourceList, force bool) (*Result, err
 			c.Log("Skipping delete of %q due to annotation [%s=%s]", info.Name, ResourcePolicyAnno, KeepPolicy)
 			continue
 		}
-		if err := deleteResource(info); err != nil {
+		if err := deleteResource(info, metav1.DeletePropagationBackground); err != nil {
 			c.Log("Failed to delete %q, err: %s", info.ObjectName(), err)
 			continue
 		}
@@ -465,17 +462,29 @@ func (c *Client) Update(original, target ResourceList, force bool) (*Result, err
 	return res, nil
 }
 
-// Delete deletes Kubernetes resources specified in the resources list. It will
-// attempt to delete all resources even if one or more fail and collect any
-// errors. All successfully deleted items will be returned in the `Deleted`
-// ResourceList that is part of the result.
+// Delete deletes Kubernetes resources specified in the resources list with
+// background cascade deletion. It will attempt to delete all resources even
+// if one or more fail and collect any errors. All successfully deleted items
+// will be returned in the `Deleted` ResourceList that is part of the result.
 func (c *Client) Delete(resources ResourceList) (*Result, []error) {
+	return rdelete(c, resources, metav1.DeletePropagationBackground)
+}
+
+// Delete deletes Kubernetes resources specified in the resources list with
+// given deletion propagation policy. It will attempt to delete all resources even
+// if one or more fail and collect any errors. All successfully deleted items
+// will be returned in the `Deleted` ResourceList that is part of the result.
+func (c *Client) DeleteWithPropagationPolicy(resources ResourceList, policy metav1.DeletionPropagation) (*Result, []error) {
+	return rdelete(c, resources, policy)
+}
+
+func rdelete(c *Client, resources ResourceList, propagation metav1.DeletionPropagation) (*Result, []error) {
 	var errs []error
 	res := &Result{}
 	mtx := sync.Mutex{}
 	err := perform(resources, func(info *resource.Info) error {
 		c.Log("Starting delete for %q %s", info.Name, info.Mapping.GroupVersionKind.Kind)
-		err := deleteResource(info)
+		err := deleteResource(info, propagation)
 		if err == nil || apierrors.IsNotFound(err) {
 			if err != nil {
 				c.Log("Ignoring delete failure for %q %s: %v", info.Name, info.Mapping.GroupVersionKind, err)
@@ -492,10 +501,8 @@ func (c *Client) Delete(resources ResourceList) (*Result, []error) {
 		return nil
 	})
 	if err != nil {
-		// Rewrite the message from "no objects visited" if that is what we got
-		// back
-		if err == ErrNoObjectsVisited {
-			err = errors.New("object not found, skipping delete")
+		if errors.Is(err, ErrNoObjectsVisited) {
+			err = fmt.Errorf("object not found, skipping delete: %w", err)
 		}
 		errs = append(errs, err)
 	}
@@ -532,6 +539,8 @@ func (c *Client) WatchUntilReady(resources ResourceList, timeout time.Duration) 
 }
 
 func perform(infos ResourceList, fn func(*resource.Info) error) error {
+	var result error
+
 	if len(infos) == 0 {
 		return ErrNoObjectsVisited
 	}
@@ -542,10 +551,11 @@ func perform(infos ResourceList, fn func(*resource.Info) error) error {
 	for range infos {
 		err := <-errs
 		if err != nil {
-			return err
+			result = multierror.Append(result, err)
 		}
 	}
-	return nil
+
+	return result
 }
 
 // getManagedFieldsManager returns the manager string. If one was set it will be returned.
@@ -586,18 +596,25 @@ func batchPerform(infos ResourceList, fn func(*resource.Info) error, errs chan<-
 }
 
 func createResource(info *resource.Info) error {
-	obj, err := resource.NewHelper(info.Client, info.Mapping).WithFieldManager(getManagedFieldsManager()).Create(info.Namespace, true, info.Object)
-	if err != nil {
-		return err
-	}
-	return info.Refresh(obj, true)
+	return retry.RetryOnConflict(
+		retry.DefaultRetry,
+		func() error {
+			obj, err := resource.NewHelper(info.Client, info.Mapping).WithFieldManager(getManagedFieldsManager()).Create(info.Namespace, true, info.Object)
+			if err != nil {
+				return err
+			}
+			return info.Refresh(obj, true)
+		})
 }
 
-func deleteResource(info *resource.Info) error {
-	policy := metav1.DeletePropagationBackground
-	opts := &metav1.DeleteOptions{PropagationPolicy: &policy}
-	_, err := resource.NewHelper(info.Client, info.Mapping).WithFieldManager(getManagedFieldsManager()).DeleteWithOptions(info.Namespace, info.Name, opts)
-	return err
+func deleteResource(info *resource.Info, policy metav1.DeletionPropagation) error {
+	return retry.RetryOnConflict(
+		retry.DefaultRetry,
+		func() error {
+			opts := &metav1.DeleteOptions{PropagationPolicy: &policy}
+			_, err := resource.NewHelper(info.Client, info.Mapping).WithFieldManager(getManagedFieldsManager()).DeleteWithOptions(info.Namespace, info.Name, opts)
+			return err
+		})
 }
 
 func createPatch(target *resource.Info, current runtime.Object) ([]byte, types.PatchType, error) {
@@ -626,7 +643,7 @@ func createPatch(target *resource.Info, current runtime.Object) ([]byte, types.P
 	// Get a versioned object
 	versionedObject := AsVersioned(target)
 
-	// Unstructured objects, such as CRDs, may not have an not registered error
+	// Unstructured objects, such as CRDs, may not have a not registered error
 	// returned from ConvertToVersion. Anything that's unstructured should
 	// use the jsonpatch.CreateMergePatch. Strategic Merge Patch is not supported
 	// on objects like CRDs.
@@ -763,7 +780,7 @@ func (c *Client) waitForJob(obj runtime.Object, name string) (bool, error) {
 		if c.Type == batch.JobComplete && c.Status == "True" {
 			return true, nil
 		} else if c.Type == batch.JobFailed && c.Status == "True" {
-			return true, errors.Errorf("job failed: %s", c.Reason)
+			return true, errors.Errorf("job %s failed: %s", name, c.Reason)
 		}
 	}
 

@@ -17,19 +17,18 @@ limitations under the License.
 package chartutil
 
 import (
-	"io/ioutil"
 	"os"
 	"path/filepath"
 
 	"github.com/pkg/errors"
 	"sigs.k8s.io/yaml"
 
-	"helm.sh/helm/v3/pkg/chart"
+	"helm.sh/helm/v4/pkg/chart"
 )
 
 // LoadChartfile loads a Chart.yaml file into a *chart.Metadata.
 func LoadChartfile(filename string) (*chart.Metadata, error) {
-	b, err := ioutil.ReadFile(filename)
+	b, err := os.ReadFile(filename)
 	if err != nil {
 		return nil, err
 	}
@@ -55,7 +54,7 @@ func SaveChartfile(filename string, cf *chart.Metadata) error {
 	if err != nil {
 		return err
 	}
-	return ioutil.WriteFile(filename, out, 0644)
+	return os.WriteFile(filename, out, 0644)
 }
 
 // IsChartDir validate a chart directory.
@@ -73,7 +72,7 @@ func IsChartDir(dirName string) (bool, error) {
 		return false, errors.Errorf("no %s exists in directory %q", ChartfileName, dirName)
 	}
 
-	chartYamlContent, err := ioutil.ReadFile(chartYaml)
+	chartYamlContent, err := os.ReadFile(chartYaml)
 	if err != nil {
 		return false, errors.Errorf("cannot read %s in directory %q", ChartfileName, dirName)
 	}
